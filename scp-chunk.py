@@ -6,6 +6,7 @@ import argparse
 import subprocess
 import hashlib
 import time
+import math
 from subprocess import CalledProcessError
 from threading import Thread
 from queue import Queue
@@ -55,6 +56,10 @@ def humanize_time(amount, units):
             amount -= a * INTERVALS[i]
 
     return result
+
+def test():
+    pass
+
 
 
 def humanize_time_to_string(time):
@@ -193,7 +198,7 @@ def spin(text):
 
 
 def split_file_and_md5(file_name, prefix, max_size, padding_width=5,
-                       buff=1024 * 1024 * 5):
+                       buff=1024 * 1024):
 
     chunks = []
     file_md5 = hashlib.md5()
@@ -206,6 +211,8 @@ def split_file_and_md5(file_name, prefix, max_size, padding_width=5,
             with open(chunk_name, 'w+b') as tgt:
                 chunk_md5 = hashlib.md5()
                 written = 0
+                print("SIZE")
+                print(max_size)
                 while written <= max_size:
                     data = src.read(buff)
                     file_md5.update(data)
@@ -314,6 +321,8 @@ def human_sizes(size):
         raise argparse.ArgumentTypeError(msg)
     return size
 
+def getFileSize(file):
+    return os.stat(file).st_size
 
 def main():
     start_time = time.time()
@@ -326,9 +335,13 @@ def main():
                         help='cypher use with from transfer see: ssh',
                         default=default_cypher,
                         required=False)
+    parser.add_argument('-n', '--nbChunks',
+                        help='number of chunks to create',
+                        default=0,
+                        required=False)
     parser.add_argument('-s', '--size',
                         help='size of chunks to transfer.',
-                        default='500M',
+                        default='0k',
                         required=False,
                         type=human_sizes)
     parser.add_argument('-r', '--retries',
@@ -356,9 +369,15 @@ def main():
     except ValueError as e:
         print('Invalid chunk size ' + str(e))
         exit(1)
+        
     num_threads = args.threads
     src_file = args.src
     dst_file = args.dst
+    nbChunks = int(args.nbChunks)
+    
+    if chunk_size == 0 and nbChunks == 0:
+        raise ValueError('Chunk size or number of chunks has to be set')
+    
     remote_server = args.srv
     retries = args.retries
     (dest_path, _) = os.path.split(dst_file)
@@ -380,6 +399,13 @@ def main():
     local_chunk_start_time = time.time()
     print("spliting file")
     spinner = spinning_cursor()
+    
+    if nbChunks > 0:    
+        fileSize = getFileSize(src_file)
+        chunk_size = math.ceil(fileSize / nbChunks)
+    
+    print(chunk_size)
+    
 
     sys.stdout.write(spinner.__next__())
     sys.stdout.flush()
