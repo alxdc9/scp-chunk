@@ -211,8 +211,6 @@ def split_file_and_md5(file_name, prefix, max_size, padding_width=5,
             with open(chunk_name, 'w+b') as tgt:
                 chunk_md5 = hashlib.md5()
                 written = 0
-                print("SIZE")
-                print(max_size)
                 while written <= max_size:
                     data = src.read(buff)
                     file_md5.update(data)
@@ -233,13 +231,14 @@ class WorkerThread(Thread):
 
     def __init__(self, file_queue, dst_file,
                  remote_server,
-                 cypher):
+                 cypher, scp):
 
         Thread.__init__(self)
         self.file_queue = file_queue
         self.dst_file = dst_file
         self.remote_server = remote_server
         self.cypher = cypher
+        self.scp = scp
 
     def run(self):
         while True:
@@ -294,7 +293,8 @@ class WorkerThread(Thread):
 
     def upload_chunk(self, src_file, dest_file):
         try:
-            subprocess.check_call('scp -P 7836 ' + '-q ' + '-oBatchMode=yes ' + src_file + ' ' + self.remote_server + ':')
+            print(self.scp + ' -P 7836 ' + '-q ' + '-oBatchMode=yes ' + src_file + ' ' + self.remote_server + ':')
+            subprocess.check_call(self.scp + ' -P 7836 ' + '-q ' + '-oBatchMode=yes ' + src_file + ' ' + self.remote_server + ':')
         except CalledProcessError as _:
             return False
         return True
@@ -324,7 +324,44 @@ def human_sizes(size):
 def getFileSize(file):
     return os.stat(file).st_size
 
+def which(program):
+    import os
+    def is_exe(fpath):
+        return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
+
+    fpath, fname = os.path.split(program)
+    if fpath:
+        if is_exe(program):
+            return program
+    else:
+        for path in os.environ["PATH"].split(os.pathsep):
+            path = path.strip('"')
+            exe_file = os.path.join(path, program)
+            if is_exe(exe_file):
+                return exe_file
+
+    return None
+
+def getLocalTool(tool):
+    toolFilePath = Path(os.path.join('bin', tool)).as_posix()
+    if os.path.exists(toolFilePath):
+        return toolFilePath
+    else:
+        raise SystemError('{} cannot be found.'.format(tool))
+
 def main():
+    #Check if scp.exe and ssh.exe are available in path
+    scp = 'scp.exe'
+    ssh = 'ssh.exe'
+    scpssh = ''
+
+    if which(ssh) is None:
+        ssh = getLocalTool(ssh)
+        scpssh = ' -S ' + ssh    
+        
+    if which(scp) is None:
+        scp = getLocalTool(scp) + scpssh
+            
     start_time = time.time()
     #Read in arguments
     parser = argparse.ArgumentParser(description='Chunk a file and then kick'
@@ -403,10 +440,7 @@ def main():
     if nbChunks > 0:    
         fileSize = getFileSize(src_file)
         chunk_size = math.ceil(fileSize / nbChunks)
-    
-    print(chunk_size)
-    
-
+   
     sys.stdout.write(spinner.__next__())
     sys.stdout.flush()
     sys.stdout.write('\b')
@@ -421,8 +455,7 @@ def main():
             checksum_file.write(src_file_md5 + ' ' + src_filename)
         print('copying ' + checksum_filepath + ' to ' + dest_checksum_filename)
         checksum_filepath = Path(checksum_filepath).as_posix()
-        print('scp -P 7836 ' + '-q ' + '-o BatchMode=yes ' + checksum_filepath + ' ' + remote_server + ':' + dest_path)
-        subprocess.check_call('scp -P 7836 ' + '-q ' + '-o BatchMode=yes ' + checksum_filepath + ' ' + remote_server + ':' + dest_path)
+        subprocess.check_call(scp + ' -P 7836 ' + '-q ' + '-o BatchMode=yes ' + checksum_filepath + ' ' + remote_server + ':' + dest_path)
     except CalledProcessError as e:                    
         print(e.returncode)
         print("ERROR: Couldn't connect to remote server.")
@@ -451,7 +484,7 @@ def main():
     transfer_start_time = time.time()
     print("starting transfers")
     for i in range(num_threads):
-        t = WorkerThread(q, dst_file, remote_server, ssh_crypto)
+        t = WorkerThread(q, dst_file, remote_server, ssh_crypto, scp)
         t.daemon = True
         t.start()
     q.join()
@@ -472,7 +505,7 @@ def main():
         else:
             #truncate if the first chunk
             cmd = "'" + remote_chunk_file + ' > ' + remote_dest_file + "'"
-        subprocess.call('ssh -p 7836 ' + remote_server + ' cat ' + cmd)
+        subprocess.call(ssh + ' -p 7836 ' + remote_server + ' cat ' + cmd)
         chunk_count += 1
     print
     print ('re-assembled')
@@ -483,8 +516,7 @@ def main():
     try:
         # use openssl to be cross platform (OSX,Linux)
         print(remote_dest_file)
-        print('ssh -p 7836 ' + remote_server + ' openssl' + ' md5 ' + remote_dest_file)
-        checksum = subprocess.check_output('ssh -p 7836 ' + remote_server + ' openssl' + ' md5 ' + remote_dest_file).decode('utf-8')
+        checksum = subprocess.check_output(ssh + ' -p 7836 ' + remote_server + ' openssl' + ' md5 ' + remote_dest_file).decode('utf-8')
         # MD5(2GB.mov)= d8ce4123aaacaec671a854f6ec74d8c0
         if checksum.find(src_file_md5) != -1:
             print('PASSED checksums match')
@@ -510,7 +542,7 @@ def main():
         try:
             print('\n')
             print(remote_chunk)
-            subprocess.call('ssh -p 7836 ' + remote_server + ' rm ' + remote_chunk)
+            subprocess.call(ssh + ' -p 7836 ' + remote_server + ' rm ' + remote_chunk)
         except CalledProcessError as e:
             print(e.returncode)
             print('ERROR: failed to remove remote chunk ' + remote_chunk)

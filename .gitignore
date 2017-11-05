@@ -42,3 +42,6 @@ nosetests.xml
 split_parts_*
 chunks_*
 *.bak
+
+testfiles/
+bin/

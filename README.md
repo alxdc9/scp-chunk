@@ -28,6 +28,10 @@ It is expected that the remote shell will provide access to the following comman
 #####local system
 * [scp](http://unixhelp.ed.ac.uk/CGI/man-cgi?scp) to copy files to remote system.
 
+#####Compatibility
+This fork adds Windows support. It hasn't been tested on Linux yet. Script looks for scp.exe and ssh.exe tools before execution. If these aren't provided in the path environment variable, the user can place both of them in a subdirectory named 'bin'.
+
+
 ##Usage
 
 
@@ -46,7 +50,7 @@ It is expected that the remote shell will provide access to the following comman
       -c CYPHER, --cypher CYPHER
                             cypher use with from transfer see: ssh
       -n NBCHUNS, --nbchunks
-      								number of chunks to create
+      								number of chunks to create. Overrides size parameter.
       -s SIZE, --size SIZE  size of chunks to transfer.
       -r RETRIES, --retries RETRIES
                             number of times to retry transfer.
