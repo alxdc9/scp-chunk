@@ -335,7 +335,7 @@ def main():
                         help='cypher use with from transfer see: ssh',
                         default=default_cypher,
                         required=False)
-    parser.add_argument('-n', '--nbChunks',
+    parser.add_argument('-n', '--nbchunks',
                         help='number of chunks to create',
                         default=0,
                         required=False)
@@ -373,7 +373,7 @@ def main():
     num_threads = args.threads
     src_file = args.src
     dst_file = args.dst
-    nbChunks = int(args.nbChunks)
+    nbChunks = int(args.nbchunks)
     
     if chunk_size == 0 and nbChunks == 0:
         raise ValueError('Chunk size or number of chunks has to be set')

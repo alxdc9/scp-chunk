@@ -31,7 +31,7 @@ It is expected that the remote shell will provide access to the following comman
 ##Usage
 
 
-    usage: scp-chunk.py [-h] [-c CYPHER] [-s SIZE] [-r RETRIES] [-t THREADS]  
+    usage: scp-chunk.py [-h] [-c CYPHER] [-n NBCHUNKS] [-s SIZE] [-r RETRIES] [-t THREADS]  
                        src srv dst  
 
     Chunk a file and then kick off multiple SCP threads.Speeds up transfers over high latency links  
@@ -45,6 +45,8 @@ It is expected that the remote shell will provide access to the following comman
       -h, --help            show this help message and exit
       -c CYPHER, --cypher CYPHER
                             cypher use with from transfer see: ssh
+      -n NBCHUNS, --nbchunks
+      								number of chunks to create
       -s SIZE, --size SIZE  size of chunks to transfer.
       -r RETRIES, --retries RETRIES
                             number of times to retry transfer.
