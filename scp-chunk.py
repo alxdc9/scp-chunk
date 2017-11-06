@@ -198,7 +198,7 @@ def spin(text):
 
 
 def split_file_and_md5(file_name, prefix, max_size, padding_width=5,
-                       buff=1024 * 1024):
+                       buff=1024 * 1024 * 2):
 
     chunks = []
     file_md5 = hashlib.md5()
@@ -231,7 +231,7 @@ class WorkerThread(Thread):
 
     def __init__(self, file_queue, dst_file,
                  remote_server,
-                 cypher, scp):
+                 cypher, scp, sshPort):
 
         Thread.__init__(self)
         self.file_queue = file_queue
@@ -239,6 +239,7 @@ class WorkerThread(Thread):
         self.remote_server = remote_server
         self.cypher = cypher
         self.scp = scp
+        self.sshPort = sshPort
 
     def run(self):
         while True:
@@ -248,7 +249,7 @@ class WorkerThread(Thread):
                 try:
                     (src_file, dest_file, chunk_num, total_chunks, retries) = self.file_queue.get(timeout=1)
                     src_file = Path(src_file).as_posix()
-                    print("Starting chunk: " + src_file + ' ' + \
+                    print("starting chunk transfer: " + src_file + ' ' + \
                           str(chunk_num) + ':' + \
                           str(total_chunks) + \
                           ' remaining ' + \
@@ -256,7 +257,7 @@ class WorkerThread(Thread):
                           ' retries ' + str(retries))
                     res = self.upload_chunk(src_file, dest_file)
                     if res:
-                        print("Finished chunk: " + src_file + ' ' + \
+                        print("finished chunk transfer: " + src_file + ' ' + \
                               str(chunk_num) + ':' + str(total_chunks) + \
                               ' remaining ' + str(self.file_queue.qsize()))
                         self.file_queue.task_done()
@@ -293,8 +294,8 @@ class WorkerThread(Thread):
 
     def upload_chunk(self, src_file, dest_file):
         try:
-            print(self.scp + ' -P 7836 ' + '-q ' + '-oBatchMode=yes ' + src_file + ' ' + self.remote_server + ':')
-            subprocess.check_call(self.scp + ' -P 7836 ' + '-q ' + '-oBatchMode=yes ' + src_file + ' ' + self.remote_server + ':')
+            cmd = [self.scp, '-P', self.sshPort, '-q', '-o BatchMode=yes', src_file, self.remote_server + ':']
+            subprocess.check_call(cmd)
         except CalledProcessError as _:
             return False
         return True
@@ -351,16 +352,17 @@ def getLocalTool(tool):
 
 def main():
     #Check if scp.exe and ssh.exe are available in path
-    scp = 'scp.exe'
-    ssh = 'ssh.exe'
-    scpssh = ''
 
-    if which(ssh) is None:
-        ssh = getLocalTool(ssh)
-        scpssh = ' -S ' + ssh    
-        
-    if which(scp) is None:
-        scp = getLocalTool(scp) + scpssh
+    if os.name == 'nt':
+        scp = 'scp.exe'
+        ssh = 'ssh.exe'
+
+        if which(scp) is None:
+            scp = getLocalTool(scp)        
+            
+        if which(ssh) is None:
+            ssh = getLocalTool(ssh)
+            scp += ' -S ' + ssh
             
     start_time = time.time()
     #Read in arguments
@@ -375,7 +377,8 @@ def main():
     parser.add_argument('-n', '--nbchunks',
                         help='number of chunks to create',
                         default=0,
-                        required=False)
+                        required=False,
+                        type=int)
     parser.add_argument('-s', '--size',
                         help='size of chunks to transfer.',
                         default='0k',
@@ -390,6 +393,11 @@ def main():
                         help='number of threads (default ' +
                         str(default_num_threads) + ')',
                         default=default_num_threads,
+                        required=False,
+                        type=int)
+    parser.add_argument('-p', '--port',
+                        help='ssh port',
+                        default=22,
                         required=False,
                         type=int)
     parser.add_argument('src', help='source file')
@@ -410,7 +418,11 @@ def main():
     num_threads = args.threads
     src_file = args.src
     dst_file = args.dst
+    if dst_file == '':
+        dst_file = ' '
+
     nbChunks = int(args.nbchunks)
+    sshPort = str(args.port)
     
     if chunk_size == 0 and nbChunks == 0:
         raise ValueError('Chunk size or number of chunks has to be set')
@@ -453,9 +465,15 @@ def main():
         dest_checksum_filename = os.path.join(dest_path, src_filename + '.md5')
         with open(checksum_filepath, 'w+') as checksum_file:
             checksum_file.write(src_file_md5 + ' ' + src_filename)
-        print('copying ' + checksum_filepath + ' to ' + dest_checksum_filename)
-        checksum_filepath = Path(checksum_filepath).as_posix()
-        subprocess.check_call(scp + ' -P 7836 ' + '-q ' + '-o BatchMode=yes ' + checksum_filepath + ' ' + remote_server + ':' + dest_path)
+
+        if os.name == 'nt':
+            checksum_filepath = Path(checksum_filepath).as_posix()
+
+        cmd = [scp, '-P', sshPort, '-q', '-o BatchMode=yes', checksum_filepath, remote_server + ':']
+        if dest_path is not '':
+            cmd.append(dest_path)
+        subprocess.check_call(cmd)
+
     except CalledProcessError as e:                    
         print(e.returncode)
         print("ERROR: Couldn't connect to remote server.")
@@ -484,7 +502,7 @@ def main():
     transfer_start_time = time.time()
     print("starting transfers")
     for i in range(num_threads):
-        t = WorkerThread(q, dst_file, remote_server, ssh_crypto, scp)
+        t = WorkerThread(q, dst_file, remote_server, ssh_crypto, scp, sshPort)
         t.daemon = True
         t.start()
     q.join()
@@ -501,13 +519,14 @@ def main():
 
         spin('processing ' + remote_chunk_filename)
         if chunk_count:
-            cmd = "'" + remote_chunk_file + ' >> ' + remote_dest_file + "'"
+            remoteCmd = remote_chunk_file + ' >> ' + remote_dest_file
         else:
             #truncate if the first chunk
-            cmd = "'" + remote_chunk_file + ' > ' + remote_dest_file + "'"
-        subprocess.call(ssh + ' -p 7836 ' + remote_server + ' cat ' + cmd)
+            remoteCmd = remote_chunk_file + ' > ' + remote_dest_file
+
+        cmd = [ssh, '-p', sshPort, remote_server, 'cat', remoteCmd]
+        subprocess.call(cmd)
         chunk_count += 1
-    print
     print ('re-assembled')
     remote_chunk_end_time = time.time()
 
@@ -515,8 +534,9 @@ def main():
     remote_checksum_start_time = time.time()
     try:
         # use openssl to be cross platform (OSX,Linux)
-        print(remote_dest_file)
-        checksum = subprocess.check_output(ssh + ' -p 7836 ' + remote_server + ' openssl' + ' md5 ' + remote_dest_file).decode('utf-8')
+        cmd = [ssh, '-p', sshPort, remote_server, 'openssl', 'md5',  remote_dest_file]
+        checksum = subprocess.check_output(cmd).decode('utf-8')
+
         # MD5(2GB.mov)= d8ce4123aaacaec671a854f6ec74d8c0
         if checksum.find(src_file_md5) != -1:
             print('PASSED checksums match')
@@ -540,9 +560,8 @@ def main():
         spin("removing file chunk " + local_chunk)
         os.remove(local_chunk)
         try:
-            print('\n')
-            print(remote_chunk)
-            subprocess.call(ssh + ' -p 7836 ' + remote_server + ' rm ' + remote_chunk)
+            cmd = [ssh, '-p', sshPort, remote_server, 'rm', remote_chunk]
+            subprocess.call(cmd)
         except CalledProcessError as e:
             print(e.returncode)
             print('ERROR: failed to remove remote chunk ' + remote_chunk)

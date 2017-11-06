@@ -56,6 +56,7 @@ This fork adds Windows support. It hasn't been tested on Linux yet. Script looks
                             number of times to retry transfer.
       -t THREADS, --threads THREADS
                             number of threads (default 3)
+      -p PORT, --port PORT	ssh port. Useful if server uses a non standard port.
 
 ##Example output
 
